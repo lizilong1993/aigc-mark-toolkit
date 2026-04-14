@@ -1,0 +1,34 @@
+{
+  "skill_slug": "aigc-mark-toolkit",
+  "recorded_at": "2026-04-14",
+  "source_task_id": "aigc-mark-toolkit-local-20260414",
+  "workflow_candidate": {
+    "slug": "build-local-aigc-mark-toolkit-skill",
+    "title": "Build Local AIGC Mark Toolkit Skill"
+  },
+  "local_registration": {
+    "path": "C:\\Users\\lizilong\\.codex\\skills\\learned\\aigc-mark-toolkit",
+    "status": "active",
+    "required_files": [
+      "SKILL.md",
+      "agents/openai.yaml"
+    ]
+  },
+  "verification": {
+    "fresh": true,
+    "evidence": [
+      "unittest discover passed 8/8 on Python 3.10 with PYTHONHASHSEED=0",
+      "quick_validate.py returned 'Skill is valid!'",
+      "run-local-skill.ps1 inspect smoke produced structured JSON on a real image"
+    ]
+  },
+  "github_publish": {
+    "status": "blocked",
+    "owner": "lizilong1993",
+    "repository": "aigc-mark-toolkit",
+    "reason": [
+      "gh auth status reports no logged-in GitHub host",
+      "shell access to github.com failed during ls-remote checks"
+    ]
+  }
+}
