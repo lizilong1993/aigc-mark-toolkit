@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "aigc-mark-toolkit"
+version = "0.1.0"
+description = "Local-first toolkit for inspecting, stripping, normalizing, and rechecking AIGC-related image marks."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [
+  { name = "lizilong local toolkit workspace" }
+]
+dependencies = [
+  "Pillow>=10.0",
+]
+
+[project.scripts]
+aigc-mark-toolkit = "aigc_mark_toolkit.cli:main"
+clean-aigc-marks = "aigc_mark_toolkit.cli:main_clean"
+
+[tool.setuptools]
+package-dir = { "" = "cli" }
+
+[tool.setuptools.packages.find]
+where = ["cli"]

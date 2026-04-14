@@ -1,0 +1,3 @@
+interface:
+  display_name: "AIGC Mark Toolkit"
+  short_description: "Local image mark inspection and cleanup"
