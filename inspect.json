@@ -1,0 +1,47 @@
+{
+  "command": "inspect",
+  "input_path": "C:\\Users\\lizilong\\.claude\\uploads\\96cbf27b-6b20-4ea1-8c8d-a25341a60591\\5d9d50ef-d4df-4d3e-b10a-3017a315ed6a-739cb5f6-2261-4772-802e-2488b412c054.png",
+  "image": {
+    "width": 3840,
+    "height": 2160,
+    "mode": "RGB",
+    "has_alpha": false,
+    "bands": [
+      "R",
+      "G",
+      "B"
+    ]
+  },
+  "embedded_markers": [
+    {
+      "type": "raw_signature",
+      "token": "c2pa",
+      "reason": "C2PA signature",
+      "offset": 57,
+      "snippet": "\u0002\u0000\u0000\u0000\u001fÜ\\%\u0000\u0000\\JcaBX\u0000\u0000\\Jjumb\u0000\u0000\u0000\u001ejumdc2pa\u0000\u0011\u0000\u0010\u0000\u0000ª\u00008q\u0003c2pa\u0000\u0000\u0000\\$jumb\u0000\u0000\u0000Gjumdc2ma\u0000\u0011\u0000\u0010\u0000\u0000ª\u00008q\u0003urn:c2pa:c4ee6430-7dcd-48ca-b4d2-79093228"
+    },
+    {
+      "type": "raw_signature",
+      "token": "jumb",
+      "reason": "JUMBF signature",
+      "offset": 45,
+      "snippet": "HDR\u0000\u0000\u000f\u0000\u0000\u0000\bp\b\u0002\u0000\u0000\u0000\u001fÜ\\%\u0000\u0000\\JcaBX\u0000\u0000\\Jjumb\u0000\u0000\u0000\u001ejumdc2pa\u0000\u0011\u0000\u0010\u0000\u0000ª\u00008q\u0003c2pa\u0000\u0000\u0000\\$jumb\u0000\u0000\u0000Gjumdc2ma\u0000\u0011\u0000\u0010\u0000\u0000ª\u00008q\u0003urn:c2pa:c4ee6430-7dcd-48ca-b"
+    },
+    {
+      "type": "raw_signature",
+      "token": "openai",
+      "reason": "Generator hint",
+      "offset": 5145,
+      "snippet": "fbetclaim_generator_info¤dnamex\u0018OpenAI Media Service APIdicon¢curlx$self#jumbf=c2pa.assertions/c2pa.icondhashX \u0000x¬CÁþ(ê#\u001bÔ\u001e^iµ"
+    }
+  ],
+  "visible_overlay_suspicions": [],
+  "pixel_suspicions": [],
+  "summary": {
+    "embedded_marker_status": "detected",
+    "visible_overlay_status": "not_detected",
+    "pixel_suspicion_status": "not_detected",
+    "primary_message": "Embedded marker(s) detected.",
+    "vendor_private_note": "cannot verify vendor-private watermark"
+  }
+}
