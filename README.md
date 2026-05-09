@@ -11,19 +11,8 @@
 ---
 
 ## 快速使用
+在claude code/codex中上传待检测/移除标记的图片，并`/aigc-mark-toolkit`调用该skill。
 
-一键清理，不产生中间文件：
-
-```powershell
-# 输出自动命名为 原图名_remove.jpg
-powershell -ExecutionPolicy Bypass -File skill/run-local-skill.ps1 quick-clean 图片.png
-
-# 指定输出路径
-powershell -ExecutionPolicy Bypass -File skill/run-local-skill.ps1 quick-clean 图片.png --output 结果.jpg
-
-# 指定策略（默认 aggressive）
-powershell -ExecutionPolicy Bypass -File skill/run-local-skill.ps1 quick-clean 图片.png --strategy balanced
-```
 
 ---
 
@@ -100,6 +89,7 @@ references/                 # 方法论与输出边界说明
 tests/                      # 自动化测试
 SKILL.md                   # 技能入口
 ```
+
 
 ---
 
