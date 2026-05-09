@@ -1,69 +1,105 @@
 # aigc-mark-toolkit
 
-`aigc-mark-toolkit` is a local-first, independently runnable toolkit for inspecting and reducing AIGC-related image marks with evidence-based recheck output.
+本地优先的 AIGC 图像标记检测与清除工具。支持 C2PA 内容凭证、生成器标记、EXIF/XMP 元数据、LSB 隐写、频域水印等多种标记的检测与移除。
 
-It does not promise unverifiable claims like "100% removed." The product contract is:
+**诚实声明**：不承诺"100% 移除"。项目输出标签严格区分：
+- `confirmed removed` — 已知标记确认移除
+- `not detected after processing` — 处理后未检出
+- `residual suspicion remains` — 仍有可疑信号
+- `cannot verify vendor-private watermark` — 供应商私有方案无法验证
 
-- maximize removal coverage
-- preserve a repeatable local workflow
-- generate before/after evidence
-- distinguish `confirmed removed` from `not detected after processing`
+---
 
-## Scope
+## 快速使用
 
-The toolkit covers three classes of image marks:
-
-- visible overlays such as logos, text, or badges
-- file-level embedded markers such as PNG text chunks, EXIF/XMP payloads, and C2PA-like signatures
-- pixel-level suspicion signals such as fragile LSB-style patterns or periodic bitplane artifacts
-
-## Repository Layout
-
-- `cli/`: Python package and CLI implementation
-- `skill/`: thin local wrapper that invokes the repository CLI
-- `references/`: methodology and wording boundaries
-- `tests/`: automated tests and sample generators
-- `SKILL.md`: discoverable local skill entry
-
-## Local Install
-
-Use any normal Python environment. This project does not depend on your private skill scaffolding after creation.
+一键清理，不产生中间文件：
 
 ```powershell
-cd C:\Users\lizilong\.codex\skills\learned\aigc-mark-toolkit
-py -3 -m pip install --no-build-isolation -e .
+# 输出自动命名为 原图名_remove.jpg
+powershell -ExecutionPolicy Bypass -File skill/run-local-skill.ps1 quick-clean 图片.png
+
+# 指定输出路径
+powershell -ExecutionPolicy Bypass -File skill/run-local-skill.ps1 quick-clean 图片.png --output 结果.jpg
+
+# 指定策略（默认 aggressive）
+powershell -ExecutionPolicy Bypass -File skill/run-local-skill.ps1 quick-clean 图片.png --strategy balanced
 ```
 
-If you do not want to install the package, you can call the thin wrapper directly:
+---
+
+## 检测范围
+
+| 类型 | 检测方法 | 覆盖内容 |
+|------|---------|---------|
+| **文件级嵌入标记** | PNG 文本块解析 + JPEG 段扫描 + 全文件特征字节匹配 | C2PA, JUMBF, OpenAI, Veo, Sora, Midjourney, Stable Diffusion, Adobe Firefly, Google Imagen 等 30+ 生成器标记；XMP 命名空间 |
+| **可见水印叠加层** | Alpha 通道角部分析 | 半透明 logo、文字、角标 |
+| **像素级隐写信号** | numpy 向量化 LSB 相关性检测（8 种空间模式） | 周期性 LSB 隐写、棋盘格/条纹/对角线模式 |
+| **频域水印** | FFT/DCT 块分析（aggressive 模式下注入 DCT 域噪声破坏） | DCT/DWT 域嵌入的水印 |
+
+---
+
+## 移除能力
+
+| 策略 | 操作 | 用途 |
+|------|------|------|
+| `preserve` | 剥离元数据 + 轻度重编码 | 只需清除文件标记，保留画质 |
+| `balanced` | 元数据剥离 + 1bit LSB 清零 + 0.985x 重采样 | 常规清除，平衡效果与画质 |
+| `aggressive` | 元数据剥离 + 2bit LSB 清零 + 0.94x 重采样 + 清晰度调整 + **DCT 域噪声注入** | 深度清除，对抗 LSB 隐写和频域水印 |
+
+aggressive 模式下 PNG 自动转 JPEG（有损编码进一步破坏隐写标记）。
+
+---
+
+## 命令参考
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\skill\run-local-skill.ps1 inspect path\to\image.png
-```
+# 检测
+aigc-mark-toolkit inspect input.png --output report.json
 
-## Commands
-
-```powershell
-aigc-mark-toolkit inspect input.png --output inspect.json
+# 剥离元数据
 aigc-mark-toolkit strip-metadata input.png --output stripped.png
-aigc-mark-toolkit normalize-image input.png --output normalized.png --strategy balanced
+
+# 标准化图像（核心移除步骤）
+aigc-mark-toolkit normalize-image input.png --output out.jpg --strategy aggressive
+
+# 区域覆盖物修复
 aigc-mark-toolkit remove-overlay input.png --output repaired.png --box 20,20,120,80
-aigc-mark-toolkit recheck input.png repaired.png --output recheck.json
-clean-aigc-marks input.png --output-dir .\out --strategy aggressive --box 20,20,120,80 --semantic-rewrite region-repair
+
+# 前后对比验证
+aigc-mark-toolkit recheck original.png processed.jpg --output recheck.json
+
+# 完整流水线（含所有中间产物）
+clean-aigc-marks input.png --output-dir ./out --strategy aggressive
+
+# 一键清理（无中间文件）
+aigc-mark-toolkit quick-clean input.png
 ```
 
-## Strategy Levels
+---
 
-- `preserve`: strip metadata and do a light re-encode
-- `balanced`: add LSB neutralization, profile stripping, alpha flattening when needed, and light resampling
-- `aggressive`: allow stronger resampling and optional region rewrite; when content is repainted, the report marks the output as not pixel-faithful
+## 安装
 
-## Output Boundary
+项目依赖 `Pillow` 和 `numpy`，Python 3.10+：
 
-Use the following result labels honestly:
+```powershell
+# 从项目目录安装
+py -3 -m pip install -e .
 
-- `confirmed removed`
-- `not detected after processing`
-- `residual suspicion remains`
-- `cannot verify vendor-private watermark`
+# 或直接用 thin wrapper（无需安装）
+powershell -ExecutionPolicy Bypass -File skill/run-local-skill.ps1 quick-clean 图片.png
+```
 
-See `references/boundaries.md` for the full wording contract.
+---
+
+## 项目结构
+
+```
+cli/aigc_mark_toolkit/     # Python 包 + CLI 实现
+skill/run-local-skill.ps1  # 本地 thin wrapper
+references/                 # 方法论与输出边界说明
+tests/                      # 自动化测试
+SKILL.md                   # 技能入口
+```
+
+---
+

@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import shutil
 import sys
+import tempfile
 from pathlib import Path
 
 from .toolkit import (
@@ -86,7 +88,48 @@ def _build_parser() -> argparse.ArgumentParser:
     clean_parser.add_argument("--mask")
     clean_parser.add_argument("--report")
 
+    quick_parser = subparsers.add_parser("quick-clean")
+    quick_parser.add_argument("input")
+    quick_parser.add_argument(
+        "--output",
+        help="Output path (default: {input_stem}_remove.jpg)",
+    )
+    quick_parser.add_argument(
+        "--strategy",
+        choices=("preserve", "balanced", "aggressive"),
+        default="aggressive",
+    )
+
     return parser
+
+
+def _quick_clean(input_path: str, output_path: str | None, strategy: str) -> dict:
+    """One-shot clean: strip → normalize (aggressive) → single output, tempdir cleaned up."""
+    source = Path(input_path)
+    if output_path:
+        final = Path(output_path)
+    else:
+        final = source.with_stem(source.stem + "_remove").with_suffix(".jpg")
+
+    with tempfile.TemporaryDirectory(prefix="aigc-clean-") as tmp:
+        tmp_dir = Path(tmp)
+        stripped = tmp_dir / f"stripped{source.suffix}"
+        strip_metadata_file(source, stripped)
+        norm_result = normalize_image_file(
+            stripped,
+            tmp_dir / "normalized.jpg",
+            strategy=strategy,
+        )
+        result_path = Path(norm_result["output_path"])
+        shutil.copy2(result_path, final)
+
+    return {
+        "command": "quick-clean",
+        "input": str(source),
+        "output": str(final),
+        "strategy": strategy,
+        "result": "done",
+    }
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -134,6 +177,10 @@ def main(argv: list[str] | None = None) -> int:
             mask_path=args.mask,
         )
         return _emit(result, args.report)
+
+    if args.command == "quick-clean":
+        result = _quick_clean(args.input, args.output, args.strategy)
+        return _emit(result, None)
 
     parser.error(f"Unsupported command: {args.command}")
     return 2

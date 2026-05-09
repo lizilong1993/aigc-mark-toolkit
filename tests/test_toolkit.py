@@ -21,12 +21,25 @@ from aigc_mark_toolkit.toolkit import (  # noqa: E402
 )
 
 
+import random
+
+
 def _gradient_image(size: tuple[int, int] = (128, 128)) -> Image.Image:
+    """Create a photo-like gradient with slight noise to avoid accidental LSB patterns."""
+    rng = random.Random(42)
     width, height = size
     pixels = []
     for y in range(height):
         for x in range(width):
-            pixels.append(((x * 2 + 30) % 256, (y * 2 + 60) % 256, ((x + y) + 90) % 256))
+            base_r = (x * 3 + y + 30) & 0xFF
+            base_g = (y * 3 + x + 60) & 0xFF
+            base_b = (x + y + 90) & 0xFF
+            # Add tiny noise to break periodic LSB patterns
+            noise = rng.randint(0, 3)
+            r = (base_r + (noise if x & 1 else -noise)) & 0xFF
+            g = (base_g + (noise if y & 1 else -noise)) & 0xFF
+            b = (base_b + (noise if (x + y) & 1 else -noise)) & 0xFF
+            pixels.append((r, g, b))
     image = Image.new("RGB", size)
     image.putdata(pixels)
     return image

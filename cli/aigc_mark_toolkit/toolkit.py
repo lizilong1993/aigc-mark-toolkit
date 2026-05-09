@@ -3,11 +3,20 @@ from __future__ import annotations
 import json
 import math
 import struct
+import zlib
 from pathlib import Path
 from statistics import pstdev
 from typing import Any
 
 from PIL import Image, ImageEnhance, ImageFilter
+
+try:
+    import numpy as np
+
+    HAS_NUMPY = True
+except ImportError:
+    np = None
+    HAS_NUMPY = False
 
 
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
@@ -19,6 +28,15 @@ KEYWORDS = {
     "midjourney": "Generator hint",
     "stable diffusion": "Generator hint",
     "openai": "Generator hint",
+    "dall-e": "Generator hint",
+    "dalle": "Generator hint",
+    "firefly": "Generator hint",
+    "adobe": "Generator hint",
+    "imagen": "Generator hint",
+    "synthesia": "Generator hint",
+    "runway": "Generator hint",
+    "pika": "Generator hint",
+    "stability.ai": "Generator hint",
 }
 
 RAW_SIGNATURES = {
@@ -29,9 +47,35 @@ RAW_SIGNATURES = {
     b"midjourney": "Generator hint",
     b"stable diffusion": "Generator hint",
     b"openai": "Generator hint",
+    b"dall-e": "Generator hint",
+    b"firefly": "Generator hint",
+    b"adobe": "Generator hint",
+    b"imagen": "Generator hint",
     b"<x:xmpmeta": "XMP packet marker",
     b"xpacket begin=": "XMP packet marker",
     b"http://ns.adobe.com/xap/1.0/": "XMP namespace marker",
+    b"http://ns.adobe.com/creatorRecovery/1.0/": "XMP namespace marker",
+    b"http://ns.google.com/photos/1.0/": "XMP namespace marker",
+    b"http://ns.microsoft.com/photo/1.0/": "XMP namespace marker",
+    b"xmp:creatortool": "XMP creator tool",
+    b"xmp:generatortool": "XMP generator tool",
+    b"xmpRights:": "XMP rights marker",
+    b"photoshop:": "XMP photoshop marker",
+    b"dc:creator": "XMP creator marker",
+    b"stitching": "AIGC stitching hint",
+    b"glide": "Generator hint",
+    b"make-a-video": "Generator hint",
+    b"gen-2": "Generator hint",
+    b"craiyon": "Generator hint",
+    b"dreamstudio": "Generator hint",
+    b"clipdrop": "Generator hint",
+    b"ideogram": "Generator hint",
+    b"leonardo": "Generator hint",
+    b"mage.space": "Generator hint",
+    b"recraft": "Generator hint",
+    b"veo": "Generator hint",
+    b"sora": "Generator hint",
+    b"kling": "Generator hint",
 }
 
 
@@ -77,6 +121,101 @@ def _format_from_path(path: str | Path, fallback: str = "PNG") -> str:
     return mapping.get(suffix, fallback)
 
 
+def _decompress_png_text(chunk_type: str, payload: bytes) -> str:
+    """Extract the human-readable text from a PNG text chunk.
+
+    - tEXt: raw latin-1 after the null separator
+    - zTXt: zlib-compressed after the null separator
+    - iTXt: UTF-8 after locale/compression flag; may be zlib-compressed
+    """
+    null_index = payload.find(b"\x00")
+    if null_index < 0:
+        return payload.decode("latin-1", errors="replace")
+    _keyword_bytes = payload[:null_index]
+    raw_value = payload[null_index + 1 :]
+
+    if chunk_type == "zTXt":
+        # zTXt: value is zlib-compressed
+        try:
+            raw_value = zlib.decompress(raw_value)
+        except zlib.error:
+            return payload.decode("latin-1", errors="replace")
+        return raw_value.decode("latin-1", errors="replace")
+
+    if chunk_type == "iTXt":
+        # iTXt: keyword\0locale\0compression\0value
+        # If compression flag is 1, value after 2nd null is zlib-compressed UTF-8
+        second_null = raw_value.find(b"\x00")
+        if second_null >= 0 and second_null + 1 < len(raw_value):
+            compression_flag = raw_value[second_null + 1] if second_null + 1 < len(raw_value) else 0
+            value_start = second_null + 2
+            compressed_value = raw_value[value_start:]
+            if compression_flag == 1:
+                try:
+                    compressed_value = zlib.decompress(compressed_value)
+                except zlib.error:
+                    pass
+            try:
+                return compressed_value.decode("utf-8", errors="replace")
+            except UnicodeDecodeError:
+                return compressed_value.decode("latin-1", errors="replace")
+        return raw_value.decode("latin-1", errors="replace")
+
+    # tEXt: raw latin-1
+    return raw_value.decode("latin-1", errors="replace")
+
+
+def _scan_jpeg_segments(data: bytes) -> list[dict[str, Any]]:
+    """Scan JPEG APP1/APP2/APP13 markers for EXIF, XMP, C2PA payloads."""
+    findings: list[dict[str, Any]] = []
+    if data[:2] != b"\xff\xd8":
+        return findings
+
+    cursor = 2
+    while cursor + 4 <= len(data):
+        if data[cursor] != 0xFF:
+            break
+        marker = data[cursor + 1]
+        if marker in (0xD8, 0xD9):
+            cursor += 2
+            continue
+        if marker == 0x00 or 0xD0 <= marker <= 0xD7:
+            cursor += 2
+            continue
+        if cursor + 4 > len(data):
+            break
+        seg_len = struct.unpack(">H", data[cursor + 2 : cursor + 4])[0]
+        if seg_len < 2:
+            cursor += 2
+            continue
+        payload_start = cursor + 4
+        payload_end = cursor + 2 + seg_len
+        payload = data[payload_start:payload_end]
+
+        if marker in (0xE1, 0xE2, 0xED):
+            # APP1 (EXIF/XMP), APP2 (C2PA/ICC), APP13 (IPTC)
+            lowered = payload.lower()
+            for token, reason in RAW_SIGNATURES.items():
+                if token in lowered:
+                    tname = {
+                        0xE1: "APP1",
+                        0xE2: "APP2",
+                        0xED: "APP13",
+                    }.get(marker, f"APP{marker - 0xE0}")
+                    findings.append(
+                        {
+                            "type": f"jpeg_{tname.lower()}_segment",
+                            "chunk_type": tname,
+                            "token": token.decode("utf-8", errors="replace"),
+                            "reason": reason,
+                            "offset": cursor,
+                            "snippet": payload[:160].decode("latin-1", errors="replace"),
+                        }
+                    )
+        cursor = cursor + 2 + seg_len
+    return findings
+
+
 def _parse_png_text_chunks(data: bytes) -> list[dict[str, Any]]:
     findings: list[dict[str, Any]] = []
     if not data.startswith(PNG_SIGNATURE):
@@ -96,8 +235,10 @@ def _parse_png_text_chunks(data: bytes) -> list[dict[str, Any]]:
                 break
             continue
 
-        decoded = payload.decode("latin-1", errors="replace")
-        keyword, _, value = decoded.partition("\x00")
+        decoded = _decompress_png_text(chunk_type, payload)
+        null_index = decoded.find("\x00")
+        keyword = decoded[:null_index] if null_index >= 0 else decoded
+        value = decoded[null_index + 1 :] if null_index >= 0 else ""
         lowered = f"{keyword} {value}".lower()
         for token, reason in KEYWORDS.items():
             if token in lowered:
@@ -113,8 +254,41 @@ def _parse_png_text_chunks(data: bytes) -> list[dict[str, Any]]:
     return findings
 
 
-def _scan_raw_markers(data: bytes) -> list[dict[str, Any]]:
-    lowered = data.lower()
+def _scan_raw_markers(data: bytes, is_jpeg: bool = False) -> list[dict[str, Any]]:
+    """Scan raw bytes for known marker strings.
+
+    For JPEG files, only scan the structured marker segments (APP / COM / DQT / SOF / DHT)
+    and skip the entropy-coded SOS data to avoid false positives from compressed bitstream.
+    For PNG files, scan the full file since non-IDAT chunks are reliable.
+    """
+    if is_jpeg:
+        # For JPEG: only scan structured marker segments, skip SOS (scan data)
+        segments = b""
+        cursor = 2
+        while cursor + 4 <= len(data):
+            if data[cursor] != 0xFF:
+                break
+            marker = data[cursor + 1]
+            if marker == 0xD8:  # SOI
+                cursor += 2
+                continue
+            if marker == 0xD9:  # EOI
+                break
+            if marker == 0x00 or 0xD0 <= marker <= 0xD7:  # Stuffing / RST
+                cursor += 2
+                continue
+            if marker == 0xDA:  # SOS - start of scan data (compressed)
+                break
+            seg_len = struct.unpack(">H", data[cursor + 2 : cursor + 4])[0]
+            payload_start = cursor + 4
+            payload_end = cursor + 2 + seg_len
+            segments += data[cursor : min(payload_end, len(data))]
+            cursor = payload_end
+        scan_data = segments
+    else:
+        scan_data = data
+
+    lowered = scan_data.lower()
     findings: list[dict[str, Any]] = []
     for token, reason in RAW_SIGNATURES.items():
         index = lowered.find(token)
@@ -198,43 +372,87 @@ def _detect_visible_overlay(image: Image.Image) -> list[dict[str, Any]]:
     return findings
 
 
-def _pattern_value(name: str, x: int, y: int) -> int:
-    if name == "checkerboard-2x2":
-        return 1 if (x + y) % 2 else -1
-    if name == "vertical-stripes-2":
-        return 1 if x % 2 else -1
-    if name == "horizontal-stripes-2":
-        return 1 if y % 2 else -1
-    raise ValueError(f"Unsupported pattern: {name}")
+def _generate_lsb_patterns(
+    width: int, height: int
+) -> dict[str, np.ndarray]:  # type: ignore[return]
+    """Generate pattern matrices for LSB correlation detection using numpy."""
+    if not HAS_NUMPY:
+        return {}
+    y_coords, x_coords = np.mgrid[0:height, 0:width]
+    return {
+        "checkerboard-2x2": np.where((x_coords + y_coords) % 2 == 0, 1, -1).astype(np.int8),
+        "checkerboard-4x4": np.where((x_coords // 2 + y_coords // 2) % 2 == 0, 1, -1).astype(
+            np.int8
+        ),
+        "checkerboard-8x8": np.where((x_coords // 4 + y_coords // 4) % 2 == 0, 1, -1).astype(
+            np.int8
+        ),
+        "vertical-stripes-2": np.where(x_coords % 2 == 0, 1, -1).astype(np.int8),
+        "vertical-stripes-4": np.where(x_coords % 4 < 2, 1, -1).astype(np.int8),
+        "horizontal-stripes-2": np.where(y_coords % 2 == 0, 1, -1).astype(np.int8),
+        "horizontal-stripes-4": np.where(y_coords % 4 < 2, 1, -1).astype(np.int8),
+        "diagonal-stripes-2": np.where((x_coords + y_coords) % 3 == 0, 1, -1).astype(np.int8),
+    }
 
 
 def _detect_pixel_suspicion(image: Image.Image) -> list[dict[str, Any]]:
-    bands = {"gray": image.convert("L"), "red": image.convert("RGB").getchannel("R")}
-    width, height = next(iter(bands.values())).size
+    width, height = image.size
     if width < 32 or height < 32:
         return []
 
     findings: list[dict[str, Any]] = []
-    total = width * height
-    for band_name, band_image in bands.items():
-        pixels = band_image.load()
-        for name in ("checkerboard-2x2", "vertical-stripes-2", "horizontal-stripes-2"):
-            accum = 0
-            for y in range(height):
-                for x in range(width):
-                    lsb_centered = 1 if (pixels[x, y] & 1) else -1
-                    accum += lsb_centered * _pattern_value(name, x, y)
-            score = abs(accum / total)
-            if score >= 0.18:
-                findings.append(
-                    {
-                        "type": "periodic_lsb_signal",
-                        "band": band_name,
-                        "pattern": name,
-                        "reason": "Regular LSB correlation can indicate a fragile hidden pixel mark.",
-                        "score": round(score, 4),
-                    }
-                )
+
+    if HAS_NUMPY:
+        gray_arr = np.array(image.convert("L"), dtype=np.uint8)
+        red_arr = np.array(image.convert("RGB").getchannel("R"), dtype=np.uint8)
+        bands: dict[str, np.ndarray] = {"gray": gray_arr, "red": red_arr}
+        patterns = _generate_lsb_patterns(width, height)
+        total = width * height
+        for band_name, band_arr in bands.items():
+            lsb = (band_arr & 1).astype(np.int8) * 2 - 1  # 0->-1, 1->1
+            for pname, pattern in patterns.items():
+                score = float(abs(np.sum(lsb * pattern))) / total
+                if score >= 0.18:
+                    findings.append(
+                        {
+                            "type": "periodic_lsb_signal",
+                            "band": band_name,
+                            "pattern": pname,
+                            "reason": "Regular LSB correlation can indicate a fragile hidden pixel mark.",
+                            "score": round(score, 4),
+                        }
+                    )
+    else:
+        # Slow fallback without numpy - only check 3 basic patterns
+        bands_loop = {
+            "gray": image.convert("L"),
+            "red": image.convert("RGB").getchannel("R"),
+        }
+        total = width * height
+        for band_name, band_image in bands_loop.items():
+            pixels = band_image.load()
+            for name in ("checkerboard-2x2", "vertical-stripes-2", "horizontal-stripes-2"):
+                accum = 0
+                for y in range(height):
+                    for x in range(width):
+                        lsb_centered = 1 if (pixels[x, y] & 1) else -1
+                        parity = 1 if (name == "checkerboard-2x2" and (x + y) % 2) else -1
+                        if name == "vertical-stripes-2":
+                            parity = 1 if x % 2 else -1
+                        elif name == "horizontal-stripes-2":
+                            parity = 1 if y % 2 else -1
+                        accum += lsb_centered * parity
+                score = abs(accum / total)
+                if score >= 0.18:
+                    findings.append(
+                        {
+                            "type": "periodic_lsb_signal",
+                            "band": band_name,
+                            "pattern": name,
+                            "reason": "Regular LSB correlation can indicate a fragile hidden pixel mark.",
+                            "score": round(score, 4),
+                        }
+                    )
 
     deduped: list[dict[str, Any]] = []
     seen_pairs: set[tuple[str, str]] = set()
@@ -263,7 +481,13 @@ def inspect_image(path: str | Path) -> dict[str, Any]:
     image = Image.open(input_path)
     raw = input_path.read_bytes()
 
-    embedded_markers = _parse_png_text_chunks(raw) + _scan_raw_markers(raw)
+    fmt = _format_from_path(path)
+    is_jpeg = fmt == "JPEG"
+    embedded_markers = (
+        _parse_png_text_chunks(raw)
+        + _scan_raw_markers(raw, is_jpeg=is_jpeg)
+        + _scan_jpeg_segments(raw)
+    )
     visible_overlay = _detect_visible_overlay(image)
     pixel_suspicion = _detect_pixel_suspicion(image)
 
@@ -330,16 +554,15 @@ def strip_metadata_file(input_path: str | Path, output_path: str | Path) -> dict
 
 def _neutralize_lsb(image: Image.Image, bits: int) -> Image.Image:
     rgb = image.convert("RGB")
-    mask = 0xFF << bits
-    pixels = []
-    source = rgb.load()
-    for y in range(rgb.height):
-        for x in range(rgb.width):
-            red, green, blue = source[x, y]
-            pixels.append((red & mask, green & mask, blue & mask))
-    cleaned = Image.new("RGB", rgb.size)
-    cleaned.putdata(pixels)
-    return cleaned
+    # mask clears the lower `bits` bits, retaining upper 8-bits worth
+    mask = (0xFF << bits) & 0xFF  # e.g. bits=1 -> 0xFE=254, bits=2 -> 0xFC=252
+    if HAS_NUMPY:
+        arr = np.array(rgb, dtype=np.uint8)
+        arr &= np.uint8(mask)
+        return Image.fromarray(arr, mode="RGB")
+    # Fallback: use PIL point() with a precomputed lookup table
+    table = [i & mask for i in range(256)]
+    return rgb.point(table * 3)
 
 
 def _light_resample(image: Image.Image, scale: float) -> Image.Image:
@@ -349,6 +572,38 @@ def _light_resample(image: Image.Image, scale: float) -> Image.Image:
         return image
     down = image.resize((width, height), Image.Resampling.BICUBIC)
     return down.resize(image.size, Image.Resampling.BICUBIC)
+
+
+def _dct_domain_noise(image: Image.Image, strength: float = 0.5) -> Image.Image:
+    """Add small perturbations in the DCT frequency domain to disrupt
+    transform-domain watermarks.
+
+    Operates on 8x8 blocks (matching JPEG block structure). Only the
+    mid-frequency coefficients (indices 4-32) are perturbed to minimise
+    visible quality loss.
+    """
+    if not HAS_NUMPY:
+        return image
+    rgb = np.array(image.convert("RGB"), dtype=np.float32)
+    h, w, _ = rgb.shape
+    h_blocks, w_blocks = h // 8, w // 8
+    # Trim to block boundary
+    rgb = rgb[: h_blocks * 8, : w_blocks * 8, :]
+    result = rgb.copy()
+    for c in range(3):
+        for by in range(h_blocks):
+            for bx in range(w_blocks):
+                block = rgb[by * 8 : (by + 1) * 8, bx * 8 : (bx + 1) * 8, c]
+                dct = np.fft.fft2(block)
+                # Perturb mid-frequency coefficients
+                noise = np.zeros_like(dct, dtype=np.complex64)
+                mid_phase = np.exp(2j * np.pi * np.random.random((8, 8)))
+                noise[2:6, 2:6] = mid_phase[2:6, 2:6] * strength
+                dct += noise
+                block_out = np.fft.ifft2(dct).real
+                result[by * 8 : (by + 1) * 8, bx * 8 : (bx + 1) * 8, c] = block_out
+    result = np.clip(result, 0, 255).astype(np.uint8)
+    return Image.fromarray(result, mode="RGB")
 
 
 def _global_restyle(image: Image.Image) -> Image.Image:
@@ -460,8 +715,9 @@ def normalize_image_file(
         image = _neutralize_lsb(image, bits=2)
         image = _light_resample(image, scale=0.94)
         image = ImageEnhance.Sharpness(image).enhance(0.96)
+        image = _dct_domain_noise(image, strength=0.5)
         steps.extend(
-            ["neutralized 2 LSB bits", "strong resample round-trip", "detail rewrite"]
+            ["neutralized 2 LSB bits", "strong resample round-trip", "detail rewrite", "DCT domain noise"]
         )
         if semantic_rewrite == "global-restyle":
             image = _global_restyle(image)
@@ -469,11 +725,13 @@ def normalize_image_file(
             steps.append("global restyle rewrite")
         elif semantic_rewrite == "region-repair" and (box or mask_path):
             temp_output = Path(output_path).with_suffix(".rewrite.tmp.png")
-            _save_sanitized(image, temp_output, "PNG")
-            rewrite_result = remove_overlay_file(
-                temp_output, output_path, box=box, mask_path=mask_path, expand=0
-            )
-            temp_output.unlink(missing_ok=True)
+            try:
+                _save_sanitized(image, temp_output, "PNG")
+                rewrite_result = remove_overlay_file(
+                    temp_output, output_path, box=box, mask_path=mask_path, expand=0
+                )
+            finally:
+                temp_output.unlink(missing_ok=True)
             return {
                 "command": "normalize-image",
                 "input_path": str(source),
