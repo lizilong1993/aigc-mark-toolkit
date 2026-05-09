@@ -100,6 +100,27 @@ def _build_parser() -> argparse.ArgumentParser:
         default="aggressive",
     )
 
+    batch_parser = subparsers.add_parser("batch-clean")
+    batch_parser.add_argument(
+        "target",
+        help="Directory path or single image file path",
+    )
+    batch_parser.add_argument(
+        "--recursive",
+        action="store_true",
+        help="Scan subdirectories recursively",
+    )
+    batch_parser.add_argument(
+        "--strategy",
+        choices=("preserve", "balanced", "aggressive"),
+        default="aggressive",
+    )
+    batch_parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Re-process images even if _remove.jpg already exists",
+    )
+
     return parser
 
 
@@ -129,6 +150,73 @@ def _quick_clean(input_path: str, output_path: str | None, strategy: str) -> dic
         "output": str(final),
         "strategy": strategy,
         "result": "done",
+    }
+
+
+IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tiff", ".tif"}
+
+
+def _is_image(path: Path) -> bool:
+    return path.suffix.lower() in IMAGE_EXTENSIONS and path.is_file()
+
+
+def _already_cleaned(path: Path) -> bool:
+    """Check whether a _remove.jpg sibling already exists for this image."""
+    return path.with_stem(path.stem + "_remove").with_suffix(".jpg").exists()
+
+
+def _find_images(target: Path, recursive: bool) -> list[Path]:
+    """Collect all image files under target (file or directory)."""
+    if target.is_file():
+        return [target] if _is_image(target) else []
+
+    if recursive:
+        images = [p for p in target.rglob("*") if _is_image(p)]
+    else:
+        images = [p for p in target.glob("*") if _is_image(p)]
+    return sorted(images)
+
+
+def _batch_clean(target: str, strategy: str, recursive: bool, force: bool) -> dict:
+    """Batch clean: scan dir, skip already-cleaned images, quick-clean the rest."""
+    root = Path(target)
+
+    images = _find_images(root, recursive)
+    if not images:
+        return {
+            "command": "batch-clean",
+            "target": target,
+            "error": "No supported image files found",
+            "result": "error",
+        }
+
+    skipped: list[str] = []
+    processed: list[str] = []
+    failed: list[str] = []
+
+    for img in images:
+        if not force and _already_cleaned(img):
+            skipped.append(str(img))
+            continue
+        try:
+            _quick_clean(str(img), None, strategy)
+            processed.append(str(img))
+        except Exception as exc:
+            failed.append(f"{img}: {exc}")
+
+    return {
+        "command": "batch-clean",
+        "target": str(root),
+        "strategy": strategy,
+        "recursive": recursive,
+        "total": len(images),
+        "processed": len(processed),
+        "skipped": len(skipped),
+        "failed": len(failed),
+        "processed_files": processed,
+        "skipped_files": skipped,
+        "failed_files": failed,
+        "result": "done" if not failed else "partial",
     }
 
 
@@ -180,6 +268,10 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "quick-clean":
         result = _quick_clean(args.input, args.output, args.strategy)
+        return _emit(result, None)
+
+    if args.command == "batch-clean":
+        result = _batch_clean(args.target, args.strategy, args.recursive, args.force)
         return _emit(result, None)
 
     parser.error(f"Unsupported command: {args.command}")

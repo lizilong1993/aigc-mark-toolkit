@@ -11,7 +11,31 @@
 ---
 
 ## 快速使用
-在claude code/codex中上传待检测/移除标记的图片，并`/aigc-mark-toolkit`调用该skill。
+
+### 单张处理
+
+```powershell
+# 输出自动命名为 原图名_remove.jpg
+powershell -ExecutionPolicy Bypass -File skill/run-local-skill.ps1 quick-clean 图片.png
+
+# 指定输出路径
+powershell -ExecutionPolicy Bypass -File skill/run-local-skill.ps1 quick-clean 图片.png --output 结果.jpg
+```
+
+### 批量处理
+
+```powershell
+# 处理目录下所有未清理过的图片（跳过已有 _remove.jpg 的）
+powershell -ExecutionPolicy Bypass -File skill/run-local-skill.ps1 batch-clean ./图片目录
+
+# 递归处理子目录
+powershell -ExecutionPolicy Bypass -File skill/run-local-skill.ps1 batch-clean ./图片目录 --recursive
+
+# 强制重新处理全部
+powershell -ExecutionPolicy Bypass -File skill/run-local-skill.ps1 batch-clean ./图片目录 --force
+```
+
+在 Claude Code 中直接上传图片或给出目录路径即可，Skill 会自动处理。
 
 
 ---
@@ -62,6 +86,10 @@ clean-aigc-marks input.png --output-dir ./out --strategy aggressive
 
 # 一键清理（无中间文件）
 aigc-mark-toolkit quick-clean input.png
+
+# 批量清理目录（自动跳过已处理的）
+aigc-mark-toolkit batch-clean ./图片目录
+aigc-mark-toolkit batch-clean ./图片目录 --recursive
 ```
 
 ---

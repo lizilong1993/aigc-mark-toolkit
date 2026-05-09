@@ -27,6 +27,19 @@ powershell -ExecutionPolicy Bypass -File skill/run-local-skill.ps1 quick-clean i
 powershell -ExecutionPolicy Bypass -File skill/run-local-skill.ps1 quick-clean input.png --strategy balanced
 ```
 
+### Batch Processing
+
+```powershell
+# Process all unprocessed images in directory (skips those with _remove.jpg)
+powershell -ExecutionPolicy Bypass -File skill/run-local-skill.ps1 batch-clean ./images
+
+# Recursive (subdirectories included)
+powershell -ExecutionPolicy Bypass -File skill/run-local-skill.ps1 batch-clean ./images --recursive
+
+# Force reprocess all
+powershell -ExecutionPolicy Bypass -File skill/run-local-skill.ps1 batch-clean ./images --force
+```
+
 ---
 
 ## Detection Coverage
@@ -75,6 +88,10 @@ clean-aigc-marks input.png --output-dir ./out --strategy aggressive
 
 # One-shot clean (no intermediate files)
 aigc-mark-toolkit quick-clean input.png
+
+# Batch clean directory (auto-skip processed)
+aigc-mark-toolkit batch-clean ./images
+aigc-mark-toolkit batch-clean ./images --recursive
 ```
 
 ---
