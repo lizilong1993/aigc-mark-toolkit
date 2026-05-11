@@ -14,6 +14,23 @@ description: Use when the user provides an image or images and wants to remove A
 3. 默认用 `aggressive` 策略，不要询问用户
 4. 不要生成中间文件
 
+## 调用环境检测
+
+运行 `run-local-skill` 前自动检测当前环境，选择对应的 wrapper：
+
+```bash
+SKILL_DIR="<项目根目录>"
+
+# 判断是 WSL/Ubuntu bash 环境还是 Windows Cmd/PowerShell
+if command -v wslpath &>/dev/null || [ "$(uname -s)" = "Linux" ]; then
+    bash "$SKILL_DIR/skill/run-local-skill.sh" <命令> "<路径>"
+else
+    powershell -ExecutionPolicy Bypass -File "$SKILL_DIR/skill/run-local-skill.ps1" <命令> "<路径>"
+fi
+```
+
+当前 shell 可通过 `$(uname -s)` 或检查 `wslpath` 命令是否存在来判断。
+
 ## 输出路径规则（重要）
 
 输出图片的存放位置自动判断：
