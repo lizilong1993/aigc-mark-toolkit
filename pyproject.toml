@@ -15,6 +15,13 @@ authors = [
 dependencies = [
   "Pillow>=10.0",
   "numpy>=1.24",
+  "torch>=2.0",
+  "spandrel>=0.4",
+]
+
+[project.optional-dependencies]
+gpu = [
+  "torch>=2.0",
 ]
 
 [project.scripts]

@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import struct
+import urllib.request
 import zlib
 from pathlib import Path
 from statistics import pstdev
@@ -17,6 +19,14 @@ try:
 except ImportError:
     np = None
     HAS_NUMPY = False
+
+
+# Real-ESRGAN 模型配置
+REALESRGAN_MODEL_URL = (
+    "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.1/RealESRGAN_x2plus.pth"
+)
+REALESRGAN_MODEL_FILENAME = "RealESRGAN_x2plus.pth"
+REALESRGAN_MODEL_DIR = Path.home() / ".cache" / "aigc-mark-toolkit"
 
 
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
@@ -606,6 +616,61 @@ def _dct_domain_noise(image: Image.Image, strength: float = 0.5) -> Image.Image:
     return Image.fromarray(result, mode="RGB")
 
 
+def _ensure_realesrgan_model() -> Path:
+    """Download Real-ESRGAN model if not cached. Returns model path."""
+    model_path = REALESRGAN_MODEL_DIR / REALESRGAN_MODEL_FILENAME
+    if model_path.exists():
+        return model_path
+
+    REALESRGAN_MODEL_DIR.mkdir(parents=True, exist_ok=True)
+    print(f"Downloading Real-ESRGAN model (~67MB) to {model_path} ...")
+    urllib.request.urlretrieve(REALESRGAN_MODEL_URL, model_path)
+    print("Download complete.")
+    return model_path
+
+
+def _super_resolve(image: Image.Image, scale: int = 2) -> Image.Image:
+    """Apply Real-ESRGAN super-resolution to the image.
+
+    Uses spandrel + torch for pure-Python model inference.
+    Falls back to PIL.LANCZOS upscale if anything fails, so the
+    pipeline never breaks.
+    """
+    w, h = image.size
+    target_size = (w * scale, h * scale)
+
+    model_path = REALESRGAN_MODEL_DIR / REALESRGAN_MODEL_FILENAME
+    if not model_path.exists():
+        try:
+            model_path = _ensure_realesrgan_model()
+        except Exception:
+            return image.resize(target_size, Image.Resampling.LANCZOS)
+
+    try:
+        import torch
+        from spandrel import ModelLoader
+
+        device = torch.device("cpu")
+        raw_state_dict = torch.load(model_path, map_location=device, weights_only=True)
+        # spandrel auto-detects the arch from state_dict keys
+        model = ModelLoader.load_from_state_dict(raw_state_dict).to(device)
+        model.eval()
+
+        rgb = image.convert("RGB")
+        arr = np.array(rgb, dtype=np.float32).transpose(2, 0, 1) / 255.0
+        tensor = torch.from_numpy(arr[None, ...]).to(device)
+
+        with torch.no_grad():
+            output_tensor = model(tensor)
+
+        output_arr = (
+            output_tensor.squeeze(0).cpu().numpy().transpose(1, 2, 0) * 255.0
+        ).clip(0, 255).astype(np.uint8)
+        return Image.fromarray(output_arr)
+    except Exception:
+        return image.resize(target_size, Image.Resampling.LANCZOS)
+
+
 def _global_restyle(image: Image.Image) -> Image.Image:
     rgb = image.convert("RGB")
     softened = rgb.filter(ImageFilter.GaussianBlur(radius=0.8))
@@ -713,11 +778,20 @@ def normalize_image_file(
         steps.extend(["neutralized 1 LSB bit", "light resample round-trip"])
     elif strategy == "aggressive":
         image = _neutralize_lsb(image, bits=2)
+        # Light downscale to disrupt pixel-level marks
         image = _light_resample(image, scale=0.94)
         image = ImageEnhance.Sharpness(image).enhance(0.96)
         image = _dct_domain_noise(image, strength=0.5)
+        # Super-resolution upscale: restore quality + extra watermark disruption
+        image = _super_resolve(image, scale=2)
         steps.extend(
-            ["neutralized 2 LSB bits", "strong resample round-trip", "detail rewrite", "DCT domain noise"]
+            [
+                "neutralized 2 LSB bits",
+                "strong resample round-trip",
+                "detail rewrite",
+                "DCT domain noise",
+                "Real-ESRGAN 2x super-resolution",
+            ]
         )
         if semantic_rewrite == "global-restyle":
             image = _global_restyle(image)

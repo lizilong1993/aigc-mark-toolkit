@@ -59,9 +59,9 @@ powershell -ExecutionPolicy Bypass -File skill/run-local-skill.ps1 batch-clean .
 |----------|-----------|----------|
 | `preserve` | Strip metadata + light re-encode | Metadata-only cleanup, preserve quality |
 | `balanced` | + 1-bit LSB clear + 0.985x resample | General cleanup |
-| `aggressive` | + 2-bit LSB clear + 0.94x resample + sharpness adj + **DCT domain noise** | Deep cleanup against LSB & frequency-domain watermarks |
+| `aggressive` | + 2-bit LSB clear + 0.94x resample + sharpness adj + **DCT domain noise + Real-ESRGAN 2x super-resolution** | Deep cleanup + quality restoration, extra watermark disruption through texture reconstruction |
 
-Aggressive mode auto-converts PNG to JPEG (lossy re-encoding further disrupts hidden marks).
+Aggressive mode auto-converts PNG to JPEG and runs Real-ESRGAN 2x upscaling. The model (~64MB) auto-downloads on first use to `~/.cache/aigc-mark-toolkit/`.
 
 ---
 

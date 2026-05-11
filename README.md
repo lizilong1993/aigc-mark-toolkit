@@ -57,9 +57,15 @@ powershell -ExecutionPolicy Bypass -File skill/run-local-skill.ps1 batch-clean .
 |------|------|------|
 | `preserve` | 剥离元数据 + 轻度重编码 | 只需清除文件标记，保留画质 |
 | `balanced` | 元数据剥离 + 1bit LSB 清零 + 0.985x 重采样 | 常规清除，平衡效果与画质 |
-| `aggressive` | 元数据剥离 + 2bit LSB 清零 + 0.94x 重采样 + 清晰度调整 + **DCT 域噪声注入** | 深度清除，对抗 LSB 隐写和频域水印 |
+| `aggressive` | 元数据剥离 + 2bit LSB 清零 + 0.94x 重采样 + 清晰度调整 + **DCT 域噪声注入 + Real-ESRGAN 2x 超分重建** | 深度清除 + 超分画质恢复，额外破坏残留在纹理中的水印信号 |
 
-aggressive 模式下 PNG 自动转 JPEG（有损编码进一步破坏隐写标记）。
+aggressive 模式下 PNG 自动转 JPEG，并自动调用 Real-ESRGAN 将图片 **2x 超分放大**。模型文件（~64MB）首次使用时自动下载到 `~/.cache/aigc-mark-toolkit/`。
+
+### 超分带来的额外安全层
+
+aggressive 策略新增的 Real-ESRGAN 2x 超分步骤起到双重作用：
+1. **画质恢复**：补偿 0.94x 重采样和 DCT 噪声带来的画质损失，输出比原图更大（2x 分辨率）
+2. **额外水印破坏**：超分的纹理重建过程会改变局部频域系数和像素值，对残留在纹理层中的 LSB 隐写、频域水印、DNN 嵌入水印产生第二次破坏
 
 ---
 
