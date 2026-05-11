@@ -14,6 +14,18 @@ description: Use when the user provides an image or images and wants to remove A
 3. 默认用 `aggressive` 策略，不要询问用户
 4. 不要生成中间文件
 
+## 输出路径规则（重要）
+
+输出图片的存放位置自动判断：
+
+| 输入来源 | 输出位置 | 文件名 |
+|---------|---------|--------|
+| 用户桌面或项目目录下的图片 | 与原图同一目录 | `{原图名}_remove.jpg` |
+| 拖拽上传的图片（`.claude/uploads/` 下） | **自动存到桌面** | `{原图名}_remove.jpg` |
+| 批量处理目录 | 每张图各自的原图目录 | `{原图名}_remove.jpg` |
+
+拖拽上传的图片不会存到 `.claude/uploads/`，而是放在桌面上，方便用户找到。
+
 ## 使用场景
 
 ### 场景一：用户提供单张图片路径

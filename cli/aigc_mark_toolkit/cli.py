@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shutil
 import sys
 import tempfile
@@ -124,13 +125,27 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _default_output(source: Path) -> Path:
+    """Determine default output path.
+
+    - If input is under .claude/uploads/ (dragged-in copy), save to Desktop.
+    - Otherwise, save alongside the original file.
+    """
+    uploads_marker = ".claude" + os.sep + "uploads"
+    if uploads_marker in str(source):
+        desktop = Path.home() / "Desktop"
+        desktop.mkdir(parents=True, exist_ok=True)
+        return desktop / (source.stem + "_remove.jpg")
+    return source.with_stem(source.stem + "_remove").with_suffix(".jpg")
+
+
 def _quick_clean(input_path: str, output_path: str | None, strategy: str) -> dict:
-    """One-shot clean: strip → normalize (aggressive) → single output, tempdir cleaned up."""
+    """One-shot clean: strip → normalize → single output, tempdir cleaned up."""
     source = Path(input_path)
     if output_path:
         final = Path(output_path)
     else:
-        final = source.with_stem(source.stem + "_remove").with_suffix(".jpg")
+        final = _default_output(source)
 
     with tempfile.TemporaryDirectory(prefix="aigc-clean-") as tmp:
         tmp_dir = Path(tmp)
@@ -161,7 +176,12 @@ def _is_image(path: Path) -> bool:
 
 
 def _already_cleaned(path: Path) -> bool:
-    """Check whether a _remove.jpg sibling already exists for this image."""
+    """Check whether a _remove.jpg already exists for this image."""
+    uploads_marker = ".claude" + os.sep + "uploads"
+    if uploads_marker in str(path):
+        desktop_check = Path.home() / "Desktop" / (path.stem + "_remove.jpg")
+        if desktop_check.exists():
+            return True
     return path.with_stem(path.stem + "_remove").with_suffix(".jpg").exists()
 
 
