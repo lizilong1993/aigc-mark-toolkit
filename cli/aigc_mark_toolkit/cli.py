@@ -159,12 +159,33 @@ def _quick_clean(input_path: str, output_path: str | None, strategy: str) -> dic
         result_path = Path(norm_result["output_path"])
         shutil.copy2(result_path, final)
 
+    # Verify: re-inspect the output image
+    from .toolkit import inspect_image  # noqa: F811
+
+    verify = inspect_image(str(final))
+    embedded_count = len(verify["embedded_markers"])
+    pixel_count = len(verify["pixel_suspicions"])
+    overlay_count = len(verify["visible_overlay_suspicions"])
+    total_signals = embedded_count + pixel_count + overlay_count
+
+    if total_signals == 0:
+        result_label = "confirmed removed"
+    elif embedded_count == 0 and (pixel_count > 0 or overlay_count > 0):
+        result_label = "residual suspicion remains"
+    else:
+        result_label = "incomplete"
+
     return {
         "command": "quick-clean",
         "input": str(source),
         "output": str(final),
         "strategy": strategy,
-        "result": "done",
+        "verify": {
+            "embedded_markers": embedded_count,
+            "pixel_suspicions": pixel_count,
+            "visible_overlays": overlay_count,
+        },
+        "result": result_label,
     }
 
 
